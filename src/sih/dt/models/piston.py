@@ -29,6 +29,7 @@ class PistonEngineModel(EngineModel):
         self._state = EngineState()
         self._previous_telemetry: Telemetry | None = None
         self._operating_time_seconds = 0.0
+        self._fuel_flow_reference = 100.0
 
     def _clamp(self, value: float, minimum: float = 0.0, maximum: float = 100.0) -> float:
         return max(minimum, min(maximum, value))
@@ -118,8 +119,11 @@ class PistonEngineModel(EngineModel):
             rpm=telemetry.rpm,
             previous_rpm=previous.rpm if previous is not None else 0.0,
             rpm_rate=rate(telemetry.rpm, previous.rpm if previous is not None else 0.0),
+            rpm_ratio=rpm_ratio,
             throttle=telemetry.throttle,
+            throttle_ratio=throttle_ratio,
             manifold_absolute_pressure=telemetry.manifold_absolute_pressure,
+            map_ratio=map_ratio,
             egt=telemetry.egt,
             egt_rate=rate(telemetry.egt, previous.egt if previous is not None else 0.0),
             cht=telemetry.cht,
@@ -133,6 +137,8 @@ class PistonEngineModel(EngineModel):
                 previous.oil_temperature if previous is not None else 0.0,
             ),
             fuel_flow=telemetry.fuel_flow,
+            fuel_flow_ratio=self._clamp(telemetry.fuel_flow / self._fuel_flow_reference),
+            injection_timing_deg=telemetry.injection_timing_deg,
             vibration=telemetry.vibration,
             vibration_rate=rate(telemetry.vibration, previous.vibration if previous is not None else 0.0),
             ambient_pressure=telemetry.ambient_pressure,

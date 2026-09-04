@@ -25,6 +25,11 @@ class Telemetry(BaseModel):
     oil_pressure: float = Field(ge=0, description="Engine oil pressure in psi.")
     oil_temperature: float = Field(ge=0, description="Engine oil temperature in degC.")
     fuel_flow: float = Field(ge=0, description="Fuel flow in L/h (prototype).")
+    injection_timing_deg: float = Field(
+        default=0.0,
+        ge=0,
+        description="Prototype injection timing representation in degrees.",
+    )
     vibration: float = Field(ge=0, description="Vibration amplitude in mm/s (prototype).")
     ambient_pressure: float = Field(ge=0, description="Ambient pressure in kPa.")
     battery_voltage: float = Field(ge=0, description="Battery voltage in V.")

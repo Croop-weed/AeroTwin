@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from sih.dt.core.twin import DigitalTwin
 from sih.dt.models.piston import PistonEngineModel
+from sih.dt.simulation.engine import SyntheticEngineSimulator
 from sih.dt.simulation.faults import FaultInjector, FaultType
 from sih.dt.telemetry.schema import Telemetry
 
@@ -35,6 +36,17 @@ def test_valid_telemetry_works():
     assert telemetry.rpm == 2400.0
     assert telemetry.throttle == 55.0
     assert telemetry.battery_voltage >= 0
+
+
+def test_injection_timing_flows_into_engine_state():
+    twin = DigitalTwin(PistonEngineModel())
+    telemetry = make_telemetry(injection_timing_deg=12.5)
+
+    twin.ingest(telemetry)
+    state = twin.update(0.1)
+
+    assert telemetry.injection_timing_deg == 12.5
+    assert state.injection_timing_deg == 12.5
 
 
 def test_invalid_telemetry_is_rejected():
@@ -162,6 +174,70 @@ def test_reset_clears_temporal_state():
     assert state.previous_rpm == 0.0
     assert state.rpm_rate == 0.0
     assert state.operating_time_seconds == pytest.approx(0.25)
+
+
+def test_operating_condition_features_are_normalized():
+    model = PistonEngineModel()
+
+    state = model.update(
+        make_telemetry(rpm=2600, throttle=60, manifold_absolute_pressure=80, fuel_flow=25),
+        0.5,
+    )
+
+    assert 0.0 <= state.rpm_ratio <= 1.0
+    assert state.rpm_ratio == pytest.approx(2600 / 5200)
+    assert state.throttle_ratio == pytest.approx(0.6)
+    assert state.map_ratio == pytest.approx(0.8)
+    assert 0.0 <= state.fuel_flow_ratio <= 1.0
+
+
+def test_operating_condition_features_increase_with_engine_demand():
+    model = PistonEngineModel()
+
+    low = model.update(
+        make_telemetry(rpm=1800, throttle=25, manifold_absolute_pressure=45, fuel_flow=10),
+        0.5,
+    )
+    high = model.update(
+        make_telemetry(rpm=3600, throttle=75, manifold_absolute_pressure=85, fuel_flow=30),
+        0.5,
+    )
+
+    assert high.rpm_ratio > low.rpm_ratio
+    assert high.throttle_ratio > low.throttle_ratio
+    assert high.map_ratio > low.map_ratio
+    assert high.fuel_flow_ratio > low.fuel_flow_ratio
+
+
+def test_simulator_twin_and_fault_injection_integration():
+    simulator = SyntheticEngineSimulator(throttle=20)
+    twin = DigitalTwin(PistonEngineModel())
+
+    low_telemetry = simulator.step(0.1)
+    twin.ingest(low_telemetry)
+    low_state = twin.update(0.1)
+
+    simulator.set_throttle(75)
+    high_telemetry = simulator.step(0.1)
+    twin.ingest(high_telemetry)
+    high_state = twin.update(0.1)
+
+    assert high_telemetry.rpm != low_telemetry.rpm
+    assert high_telemetry.manifold_absolute_pressure != low_telemetry.manifold_absolute_pressure
+    assert high_telemetry.fuel_flow != low_telemetry.fuel_flow
+    assert high_state.rpm != low_state.rpm
+    assert high_state.throttle_ratio > low_state.throttle_ratio
+    assert high_state.map_ratio != low_state.map_ratio
+    assert high_state.fuel_flow_ratio != low_state.fuel_flow_ratio
+    assert high_state.rpm_rate > 0
+
+    faulted = FaultInjector(FaultType.OVERHEATING).inject(high_telemetry)
+    twin.ingest(faulted)
+    faulted_state = twin.update(0.1)
+
+    assert faulted_state.egt > high_state.egt
+    assert faulted_state.cht > high_state.cht
+    assert faulted_state.thermal_health < high_state.thermal_health
 
 def test_abnormal_conditions_reduce_health():
     twin = DigitalTwin(PistonEngineModel())

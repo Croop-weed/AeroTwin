@@ -13,8 +13,11 @@ class EngineState(BaseModel):
     rpm: float = 0.0
     previous_rpm: float = 0.0
     rpm_rate: float = 0.0
+    rpm_ratio: float = 0.0
     throttle: float = 0.0
+    throttle_ratio: float = 0.0
     manifold_absolute_pressure: float = 0.0
+    map_ratio: float = 0.0
     egt: float = 0.0
     egt_rate: float = 0.0
     cht: float = 0.0
@@ -25,6 +28,8 @@ class EngineState(BaseModel):
     oil_temperature: float = 0.0
     oil_temperature_rate: float = 0.0
     fuel_flow: float = 0.0
+    fuel_flow_ratio: float = 0.0
+    injection_timing_deg: float = 0.0
     vibration: float = 0.0
     vibration_rate: float = 0.0
     ambient_pressure: float = 0.0

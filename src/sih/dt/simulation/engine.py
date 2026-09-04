@@ -31,6 +31,7 @@ class SyntheticEngineSimulator:
         self._oil_pressure = 0.0
         self._oil_temperature = 0.0
         self._fuel_flow = 0.0
+        self._injection_timing_deg = 0.0
         self._vibration = 0.0
         self._battery_voltage = 0.0
         self.set_throttle(throttle)
@@ -129,6 +130,7 @@ class SyntheticEngineSimulator:
             oil_pressure=self._oil_pressure,
             oil_temperature=self._oil_temperature,
             fuel_flow=self._fuel_flow,
+            injection_timing_deg=self._injection_timing_deg,
             vibration=self._vibration,
             ambient_pressure=self._ambient_pressure,
             battery_voltage=self._battery_voltage,

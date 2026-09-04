@@ -9,6 +9,11 @@ class FaultType(str, Enum):
     OVERHEATING = "OVERHEATING"
     LUBRICATION_FAILURE = "LUBRICATION_FAILURE"
     INJECTOR_DEGRADATION = "INJECTOR_DEGRADATION"
+    MISFIRE = "MISFIRE"
+    COMBUSTION_INSTABILITY = "COMBUSTION_INSTABILITY"
+    ABNORMAL_VIBRATION = "ABNORMAL_VIBRATION"
+    SENSOR_DRIFT = "SENSOR_DRIFT"
+    SENSOR_FAILURE = "SENSOR_FAILURE"
 
 
 class FaultInjector:
@@ -48,5 +53,23 @@ class FaultInjector:
             injected.fuel_flow += 6.0
             injected.egt += 35.0
             injected.rpm = max(0.0, injected.rpm * 0.9)
+
+        elif self.active_fault is FaultType.MISFIRE:
+            injected.rpm = max(0.0, injected.rpm * 0.75)
+            injected.egt = max(0.0, injected.egt - 40.0)
+            injected.vibration += 1.5
+
+        elif self.active_fault is FaultType.COMBUSTION_INSTABILITY:
+            injected.egt += 45.0
+            injected.rpm = max(0.0, injected.rpm * 0.92)
+
+        elif self.active_fault is FaultType.ABNORMAL_VIBRATION:
+            injected.vibration += 4.0
+
+        elif self.active_fault is FaultType.SENSOR_DRIFT:
+            injected.egt += 25.0
+
+        elif self.active_fault is FaultType.SENSOR_FAILURE:
+            injected.battery_voltage = 0.0
 
         return Telemetry(**injected.model_dump())
