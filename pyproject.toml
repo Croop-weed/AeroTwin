@@ -1,0 +1,54 @@
+[project]
+name = "sih"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Harshit Dhaundiyal", email = "harsh.arror@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "albumentations>=2.0.8",
+    "alembic>=1.19.1",
+    "asyncpg>=0.31.0",
+    "celery>=5.6.3",
+    "fastapi[standard]>=0.141.1",
+    "fiona>=1.10.1",
+    "geoalchemy2>=0.20.0",
+    "geopandas>=1.1.4",
+    "httpx>=0.28.1",
+    "minio>=7.2.20",
+    "mlflow>=3.15.2",
+    "numpy>=2.5.2",
+    "opencv-python>=5.0.0.93",
+    "opencv-python-headless>=5.0.0.93",
+    "pydantic>=2.13.5",
+    "pydantic-settings>=2.15.0",
+    "pyproj>=3.7.2",
+    "pytest>=9.1.1",
+    "python-multipart>=0.0.32",
+    "pyyaml>=6.0.3",
+    "rasterio>=1.5.1",
+    "redis>=8.1.0",
+    "scikit-image>=0.26.0",
+    "scikit-learn>=1.9.0",
+    "scipy>=1.18.1",
+    "segmentation-models-pytorch>=0.5.0",
+    "shapely>=2.1.2",
+    "sqlalchemy>=2.0.52",
+    "torch>=2.13.0",
+    "torchvision>=0.28.0",
+    "xgboost>=3.4.1",
+]
+
+[project.scripts]
+sih = "sih:main"
+
+[build-system]
+requires = ["uv_build>=0.12.1,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
