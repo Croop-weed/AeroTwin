@@ -11,18 +11,25 @@ class EngineState(BaseModel):
     timestamp: datetime | None = None
 
     rpm: float = 0.0
+    previous_rpm: float = 0.0
+    rpm_rate: float = 0.0
     throttle: float = 0.0
     manifold_absolute_pressure: float = 0.0
     egt: float = 0.0
+    egt_rate: float = 0.0
     cht: float = 0.0
+    cht_rate: float = 0.0
     intake_air_temperature: float = 0.0
     ambient_temperature: float = 0.0
     oil_pressure: float = 0.0
     oil_temperature: float = 0.0
+    oil_temperature_rate: float = 0.0
     fuel_flow: float = 0.0
     vibration: float = 0.0
+    vibration_rate: float = 0.0
     ambient_pressure: float = 0.0
     battery_voltage: float = 0.0
+    operating_time_seconds: float = 0.0
 
     estimated_torque: float = 0.0
     estimated_power: float = 0.0

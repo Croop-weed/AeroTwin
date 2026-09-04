@@ -27,6 +27,8 @@ class PistonEngineModel(EngineModel):
         self.high_vibration_mm_s = high_vibration_mm_s
         self.nominal_battery_v = nominal_battery_v
         self._state = EngineState()
+        self._previous_telemetry: Telemetry | None = None
+        self._operating_time_seconds = 0.0
 
     def _clamp(self, value: float, minimum: float = 0.0, maximum: float = 100.0) -> float:
         return max(minimum, min(maximum, value))
@@ -34,6 +36,14 @@ class PistonEngineModel(EngineModel):
     def update(self, telemetry: Telemetry, dt: float) -> EngineState:
         if dt < 0:
             raise ValueError("dt must be non-negative")
+
+        previous = self._previous_telemetry
+        has_previous_sample = previous is not None and dt > 0
+
+        def rate(current: float, previous_value: float) -> float:
+            if not has_previous_sample:
+                return 0.0
+            return (current - previous_value) / dt
 
         angular_velocity = (telemetry.rpm / 60.0) * 2.0 * math.pi
 
@@ -106,16 +116,25 @@ class PistonEngineModel(EngineModel):
         state = EngineState(
             timestamp=telemetry.timestamp,
             rpm=telemetry.rpm,
+            previous_rpm=previous.rpm if previous is not None else 0.0,
+            rpm_rate=rate(telemetry.rpm, previous.rpm if previous is not None else 0.0),
             throttle=telemetry.throttle,
             manifold_absolute_pressure=telemetry.manifold_absolute_pressure,
             egt=telemetry.egt,
+            egt_rate=rate(telemetry.egt, previous.egt if previous is not None else 0.0),
             cht=telemetry.cht,
+            cht_rate=rate(telemetry.cht, previous.cht if previous is not None else 0.0),
             intake_air_temperature=telemetry.intake_air_temperature,
             ambient_temperature=telemetry.ambient_temperature,
             oil_pressure=telemetry.oil_pressure,
             oil_temperature=telemetry.oil_temperature,
+            oil_temperature_rate=rate(
+                telemetry.oil_temperature,
+                previous.oil_temperature if previous is not None else 0.0,
+            ),
             fuel_flow=telemetry.fuel_flow,
             vibration=telemetry.vibration,
+            vibration_rate=rate(telemetry.vibration, previous.vibration if previous is not None else 0.0),
             ambient_pressure=telemetry.ambient_pressure,
             battery_voltage=telemetry.battery_voltage,
             estimated_torque=torque,
@@ -128,12 +147,17 @@ class PistonEngineModel(EngineModel):
             mechanical_health=mechanical_health,
             electrical_health=electrical_health,
             overall_health=overall_health,
+            operating_time_seconds=self._operating_time_seconds + dt,
         )
         self._state = state
+        self._previous_telemetry = telemetry
+        self._operating_time_seconds += dt
         return state
 
     def reset(self) -> None:
         self._state = EngineState()
+        self._previous_telemetry = None
+        self._operating_time_seconds = 0.0
 
     def get_state(self) -> EngineState:
         return self._state

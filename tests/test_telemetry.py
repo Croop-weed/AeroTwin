@@ -89,6 +89,80 @@ def test_changing_telemetry_changes_state():
     assert first_state.estimated_torque != second_state.estimated_torque
     assert first_state.estimated_power != second_state.estimated_power
 
+
+def test_first_update_has_zero_temporal_rates():
+    model = PistonEngineModel()
+
+    state = model.update(make_telemetry(), 0.5)
+
+    assert state.previous_rpm == 0.0
+    assert state.rpm_rate == 0.0
+    assert state.egt_rate == 0.0
+    assert state.cht_rate == 0.0
+    assert state.oil_temperature_rate == 0.0
+    assert state.vibration_rate == 0.0
+
+
+def test_rpm_rate_tracks_increasing_and_decreasing_rpm():
+    model = PistonEngineModel()
+
+    model.update(make_telemetry(rpm=2400), 0.5)
+    increasing = model.update(make_telemetry(rpm=3000), 0.5)
+    decreasing = model.update(make_telemetry(rpm=2700), 0.5)
+
+    assert increasing.previous_rpm == 2400
+    assert increasing.rpm_rate == pytest.approx(1200)
+    assert decreasing.rpm_rate == pytest.approx(-600)
+
+
+def test_temperature_and_vibration_rates_are_signed():
+    model = PistonEngineModel()
+
+    model.update(
+        make_telemetry(egt=700, cht=180, oil_temperature=90, vibration=1.0),
+        0.5,
+    )
+    state = model.update(
+        make_telemetry(egt=750, cht=170, oil_temperature=95, vibration=0.5),
+        0.5,
+    )
+
+    assert state.egt_rate == pytest.approx(100)
+    assert state.cht_rate == pytest.approx(-20)
+    assert state.oil_temperature_rate == pytest.approx(10)
+    assert state.vibration_rate == pytest.approx(-1)
+
+
+def test_operating_time_accumulates_successful_updates():
+    model = PistonEngineModel()
+
+    assert model.update(make_telemetry(), 0.5).operating_time_seconds == pytest.approx(0.5)
+    assert model.update(make_telemetry(), 1.25).operating_time_seconds == pytest.approx(1.75)
+
+
+def test_zero_dt_does_not_divide_or_advance_temporal_state():
+    model = PistonEngineModel()
+
+    model.update(make_telemetry(rpm=2400), 0.5)
+    state = model.update(make_telemetry(rpm=3000, egt=750), 0.0)
+
+    assert state.rpm_rate == 0.0
+    assert state.egt_rate == 0.0
+    assert state.operating_time_seconds == pytest.approx(0.5)
+
+
+def test_reset_clears_temporal_state():
+    model = PistonEngineModel()
+    model.update(make_telemetry(rpm=2400), 0.5)
+    model.update(make_telemetry(rpm=3000), 0.5)
+
+    model.reset()
+    state = model.update(make_telemetry(rpm=3000), 0.25)
+
+    assert state.previous_rpm == 0.0
+    assert state.rpm_rate == 0.0
+    assert state.operating_time_seconds == pytest.approx(0.25)
+
 def test_abnormal_conditions_reduce_health():
     twin = DigitalTwin(PistonEngineModel())
 
