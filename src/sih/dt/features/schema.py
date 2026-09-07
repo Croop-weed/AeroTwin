@@ -5,6 +5,17 @@ import math
 from types import MappingProxyType
 from typing import Iterator, Mapping, Sequence
 
+RESIDUAL_CHANNELS = (
+    "vibration",
+    "egt",
+    "cht",
+    "oil_pressure",
+    "oil_temperature",
+    "fuel_flow",
+)
+
+RESIDUAL_STATS = ("mean", "std", "max_abs", "slope")
+
 
 @dataclass(frozen=True)
 class FeatureVector:
