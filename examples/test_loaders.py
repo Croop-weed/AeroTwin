@@ -12,9 +12,11 @@ def main():
         print("CMAPSS data not found or empty.")
 
     print("\nTesting CWRU Loader:")
-    df_cwru, meta_cwru = load_cwru()
-    if not df_cwru.empty:
-        print(f"Loaded CWRU: shape {df_cwru.shape}")
+    cwru_results = load_cwru()
+    if cwru_results:
+        print(f"Loaded {len(cwru_results)} CWRU files.")
+        df_cwru, meta_cwru = cwru_results[0]
+        print(f"First CWRU file shape: {df_cwru.shape}")
         print(f"Metadata: {meta_cwru}")
         print(df_cwru.head(2))
     else:

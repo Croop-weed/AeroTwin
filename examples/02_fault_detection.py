@@ -11,6 +11,10 @@ from sih.dt.features.extractor import ResidualFeatureExtractor
 from sih.dt.features.physics import PhysicsReferenceModel
 from data_loaders import load_ai4i, load_cwru
 
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split, GroupShuffleSplit
+from sklearn.metrics import precision_score, recall_score, average_precision_score
+
 def validate_against_cwru() -> None:
     """
     Validation hook for CWRU Bearing Dataset.
@@ -26,20 +30,75 @@ def validate_against_cwru() -> None:
     """
     print("\n--- CWRU Validation Hook (Vibration Faults) ---")
     print("NOTE: Simulator vibration is scalar-only. Using rolling stats as a simplified proxy, not true FFT analysis.")
-    df, meta = load_cwru()
-    if df.empty:
+    results = load_cwru()
+    if not results:
         print("CWRU data not found or loader unimplemented. Skipping validation step.")
     else:
-        print(f"Loaded CWRU {meta.get('fault_type', 'unknown')} data (shape: {df.shape}).")
-        # Compute the same four statistics over a rolling window (e.g., 500 samples)
-        if len(df.columns) > 0:
+        print(f"Loaded {len(results)} CWRU files.")
+        
+        X_all, y_all, groups = [], [], []
+        
+        for file_idx, (df, meta) in enumerate(results):
+            if df.empty:
+                continue
+            
             col = df.columns[0]
-            # Simple separability check
-            mean_val = df[col].mean()
-            std_val = df[col].std()
-            max_abs_val = df[col].abs().max()
-            print(f"Validation stats for {col}: Mean={mean_val:.4f}, Std={std_val:.4f}, MaxAbs={max_abs_val:.4f}")
-            print("CWRU Validation complete: Statistical features are computable on real waveforms.")
+            arr = df[col].values
+            fault_type = meta.get('fault_type', 'unknown')
+            
+            # Segment into 1024-length windows
+            window_size = 1024
+            for i in range(0, len(arr) - window_size + 1, window_size):
+                window = arr[i:i+window_size]
+                
+                # Compute stats (analogous to our extractor features)
+                mean_val = window.mean()
+                std_val = window.std()
+                max_abs_val = np.max(np.abs(window))
+                # rough approximation of slope
+                slope_val = (window[-1] - window[0]) / window_size
+                
+                X_all.append([mean_val, std_val, max_abs_val, slope_val])
+                y_all.append(fault_type)
+                groups.append(file_idx) # Group by file
+                
+        if X_all:
+            X_all = np.array(X_all)
+            y_all = np.array(y_all)
+            groups = np.array(groups)
+            
+            # File-based split
+            gss = GroupShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
+            train_idx, test_idx = next(gss.split(X_all, y_all, groups))
+            
+            X_train, y_train = X_all[train_idx], y_all[train_idx]
+            X_test, y_test = X_all[test_idx], y_all[test_idx]
+            
+            train_files = len(np.unique(groups[train_idx]))
+            test_files = len(np.unique(groups[test_idx]))
+            
+            print(f"Split: train ({train_files} files / {len(X_train)} windows), test ({test_files} files / {len(X_test)} windows)")
+            
+            # Print per-class counts
+            print("Per-class counts:")
+            for c in np.unique(y_all):
+                c_train_idx = [i for i, y in enumerate(y_train) if y == c]
+                c_test_idx = [i for i, y in enumerate(y_test) if y == c]
+                c_train_files = len(np.unique([groups[train_idx][i] for i in c_train_idx]))
+                c_test_files = len(np.unique([groups[test_idx][i] for i in c_test_idx]))
+                print(f"  - {c}: train ({c_train_files} files / {len(c_train_idx)} windows), test ({c_test_files} files / {len(c_test_idx)} windows)")
+            
+            clf = RandomForestClassifier(n_estimators=50, class_weight="balanced", random_state=42)
+            clf.fit(X_train, y_train)
+            
+            # Since fault types might be multiple classes, we use macro averages if >2 classes
+            if len(np.unique(y_test)) > 1:
+                preds = clf.predict(X_test)
+                prec = precision_score(y_test, preds, average='macro', zero_division=0)
+                rec = recall_score(y_test, preds, average='macro', zero_division=0)
+                print(f"CWRU Validation: Precision (macro) = {prec:.3f}, Recall (macro) = {rec:.3f}")
+            else:
+                print("CWRU Validation: Not enough classes in test set to evaluate.")
 
 
 def validate_against_ai4i() -> None:
@@ -55,10 +114,37 @@ def validate_against_ai4i() -> None:
         print("AI4I data not found or loader unimplemented. Skipping validation step.")
     else:
         print(f"Loaded AI4I data (shape: {df.shape}).")
-        # In a real validation, we would map the features and predict with TabularFaultClassifier.
-        # For now, print a simple check.
-        failure_rate = df["machine_failure"].mean() if "machine_failure" in df.columns else 0.0
-        print(f"AI4I Validation complete: Data loaded, overall failure rate {failure_rate:.1%}")
+        
+        y = df["machine_failure"].values
+        # Drop label and failure subtype components
+        drop_cols = ["machine_failure", "TWF", "HDF", "PWF", "OSF", "RNF"]
+        drop_cols = [c for c in drop_cols if c in df.columns]
+        X = df.drop(columns=drop_cols).values
+        
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
+        
+        train_fails = np.sum(y_train)
+        test_fails = np.sum(y_test)
+        print(f"Split: train ({len(X_train)} rows, {train_fails} failures), test ({len(X_test)} rows, {test_fails} failures)")
+        
+        # Per-class counts
+        print("Per-class counts:")
+        for c, name in [(0, "Healthy"), (1, "Failure")]:
+            c_train_cnt = np.sum(y_train == c)
+            c_test_cnt = np.sum(y_test == c)
+            print(f"  - {name}: train ({c_train_cnt} rows), test ({c_test_cnt} rows)")
+            
+        clf = RandomForestClassifier(n_estimators=50, class_weight="balanced", random_state=42)
+        clf.fit(X_train, y_train)
+        
+        preds = clf.predict(X_test)
+        probs = clf.predict_proba(X_test)[:, 1]
+        
+        prec = precision_score(y_test, preds, zero_division=0)
+        rec = recall_score(y_test, preds, zero_division=0)
+        pr_auc = average_precision_score(y_test, probs)
+        
+        print(f"AI4I Validation: Precision = {prec:.3f}, Recall = {rec:.3f}, PR-AUC = {pr_auc:.3f}")
 
 class VibrationFaultClassifier:
     """
