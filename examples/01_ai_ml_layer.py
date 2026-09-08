@@ -6,6 +6,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
+import copy
 from sklearn.model_selection import GroupShuffleSplit
 from sklearn.preprocessing import StandardScaler
 
@@ -75,26 +76,74 @@ def validate_against_cmapss(rul_model: AeroTwinRULModel) -> None:
         
         # Create Datasets
         seq_len = 30
+        
+        import os
+        model_cache_path = "data/cache/best_rul_model.pth"
+        if os.path.exists(model_cache_path):
+            print(f"Loading pretrained LSTM weights from {model_cache_path}...")
+            rul_model.load_state_dict(torch.load(model_cache_path, weights_only=True))
+            return
+            
         train_ds = CMAPSSWindowDataset(train_df, sensor_cols, seq_len)
+        test_ds = CMAPSSWindowDataset(test_df, sensor_cols, seq_len)
         
         train_loader = DataLoader(train_ds, batch_size=256, shuffle=True)
+        test_loader = DataLoader(test_ds, batch_size=256, shuffle=False)
         
         # Pretraining Loop (Door A)
         optimizer = torch.optim.Adam(rul_model.parameters(), lr=1e-3)
         criterion = nn.MSELoss()
         
-        epochs = 3  # Short for hackathon validation
-        rul_model.train()
+        epochs = 100  # Increased for full convergence
+        patience = 5
+        best_val_loss = float('inf')
+        patience_counter = 0
+        best_model_state = None
+        
         for epoch in range(epochs):
-            total_loss = 0
+            # Training Phase
+            rul_model.train()
+            total_train_loss = 0
             for batch_x, batch_y in train_loader:
                 optimizer.zero_grad()
                 preds = rul_model.forward_cmapss(batch_x)
                 loss = criterion(preds, batch_y)
                 loss.backward()
                 optimizer.step()
-                total_loss += loss.item()
-            print(f"  Epoch {epoch+1}/{epochs} - Loss: {total_loss/len(train_loader):.2f}")
+                total_train_loss += loss.item()
+                
+            avg_train_loss = total_train_loss / len(train_loader)
+            
+            # Validation Phase
+            rul_model.eval()
+            total_val_loss = 0
+            with torch.no_grad():
+                for batch_x, batch_y in test_loader:
+                    preds = rul_model.forward_cmapss(batch_x)
+                    loss = criterion(preds, batch_y)
+                    total_val_loss += loss.item()
+                    
+            avg_val_loss = total_val_loss / len(test_loader)
+            
+            print(f"  Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.2f} | Val Loss: {avg_val_loss:.2f}")
+            
+            # Early Stopping Check
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                patience_counter = 0
+                best_model_state = copy.deepcopy(rul_model.state_dict())
+            else:
+                patience_counter += 1
+                
+            if patience_counter >= patience:
+                print(f"Early stopping triggered at epoch {epoch+1}! Best Val Loss: {best_val_loss:.2f}")
+                break
+                
+        # Restore and save the best model weights to disk
+        if best_model_state is not None:
+            rul_model.load_state_dict(best_model_state)
+            torch.save(best_model_state, model_cache_path)
+            print(f"Saved best model weights to {model_cache_path}")
             
         print("C-MAPSS LSTM Pretraining Complete.")
 
