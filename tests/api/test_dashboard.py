@@ -70,3 +70,46 @@ def test_dashboard_dynamic_update(client, registered_uav, sample_telemetry_dict)
 
     snap2 = client.get(f"/api/v1/uavs/{registered_uav}/dashboard").json()
     assert snap2["engine"]["rpm"] == 3100.0
+
+
+def test_mission_report_endpoint(client, registered_uav, sample_telemetry_dict):
+    # Ingest a sample point
+    client.post(f"/api/v1/uavs/{registered_uav}/telemetry", json=sample_telemetry_dict)
+
+    res = client.get(f"/api/v1/uavs/{registered_uav}/mission-report")
+    assert res.status_code == 200
+    report = res.json()
+
+    assert report["uav_id"] == registered_uav
+    assert report["total_telemetry_points"] >= 1
+    assert "average_health" in report
+    assert "min_health" in report
+    assert "maintenance_advisory" in report
+    assert "timeline_events" in report
+    assert len(report["timeline_events"]) >= 1
+    assert report["timeline_events"][0]["event_type"] == "MISSION_START"
+
+
+def test_performance_map_endpoint(client, registered_uav, sample_telemetry_dict):
+    # Ingest a sample point
+    client.post(f"/api/v1/uavs/{registered_uav}/telemetry", json=sample_telemetry_dict)
+
+    res = client.get(f"/api/v1/uavs/{registered_uav}/performance-map")
+    assert res.status_code == 200
+    pmap = res.json()
+
+    assert pmap["uav_id"] == registered_uav
+    assert "envelope_grid" in pmap
+    assert len(pmap["envelope_grid"]) > 10
+    assert "observed_points" in pmap
+    assert len(pmap["observed_points"]) >= 1
+    assert pmap["current_point"] is not None
+    assert pmap["current_point"]["rpm"] == 2400.0
+    assert "disclaimer" in pmap
+
+
+def test_dashboard_static_page_serves_html(client):
+    res = client.get("/dashboard/")
+    assert res.status_code == 200
+    assert "text/html" in res.headers.get("content-type", "")
+    assert "AeroTwin" in res.text

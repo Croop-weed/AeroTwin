@@ -10,6 +10,7 @@ def test_simulation_workflow(client, registered_uav):
     assert res_start.status_code == 200
     assert res_start.json()["is_active"] is True
     assert res_start.json()["throttle"] == 30.0
+    assert res_start.json()["latest_telemetry"]["throttle"] == 30.0
 
     # 2. Step simulation
     res_step = client.post(
@@ -60,6 +61,28 @@ def test_simulation_workflow(client, registered_uav):
     res_reset = client.post(f"/api/v1/uavs/{registered_uav}/simulation/reset")
     assert res_reset.status_code == 200
     assert res_reset.json()["simulated_time_seconds"] == 0.0
+
+
+def test_start_simulation_clears_previous_dashboard_session(client, registered_uav):
+    client.post(
+        f"/api/v1/uavs/{registered_uav}/simulation/start",
+        json={"throttle": 45.0},
+    )
+    client.post(
+        f"/api/v1/uavs/{registered_uav}/simulation/step",
+        json={"dt": 0.5, "auto_ingest": True},
+    )
+
+    restarted = client.post(
+        f"/api/v1/uavs/{registered_uav}/simulation/start",
+        json={"throttle": 20.0},
+    )
+    history = client.get(f"/api/v1/uavs/{registered_uav}/history")
+
+    assert restarted.status_code == 200
+    assert restarted.json()["latest_telemetry"]["throttle"] == 20.0
+    assert history.status_code == 200
+    assert history.json()["total_points"] == 0
 
 
 def test_invalid_fault_type_rejected(client, registered_uav):

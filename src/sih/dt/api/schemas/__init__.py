@@ -22,6 +22,9 @@ from sih.dt.api.schemas.simulation import (
     SimulationThrottleRequest,
 )
 
+from sih.dt.api.schemas.mission import MissionEvent, MissionReportResponse
+from sih.dt.api.schemas.performance import PerformanceMapResponse, PerformanceOperatingPoint
+
 __all__ = [
     "AnalyticsSummaryResponse",
     "AnomalyResponse",
@@ -32,6 +35,10 @@ __all__ = [
     "FaultDiagnosisItem",
     "HistoryPoint",
     "HistoryResponse",
+    "MissionEvent",
+    "MissionReportResponse",
+    "PerformanceMapResponse",
+    "PerformanceOperatingPoint",
     "RULResponse",
     "SensorStatusItem",
     "ServerHealthResponse",

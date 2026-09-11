@@ -3,7 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
-from sih.dt.api.schemas.engine import EngineMeasurementsResponse, SubsystemHealthResponse
+from sih.dt.api.schemas.engine import (
+    EngineMeasurementsResponse,
+    EnginePerformanceResponse,
+    SubsystemHealthResponse,
+)
 
 
 class HistoryPoint(BaseModel):
@@ -12,6 +16,7 @@ class HistoryPoint(BaseModel):
 
     timestamp: datetime
     measurements: EngineMeasurementsResponse
+    performance: EnginePerformanceResponse | None = None
     health: SubsystemHealthResponse
     overall_health: float
     is_anomaly: bool = False

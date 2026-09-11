@@ -97,6 +97,14 @@ def create_app() -> FastAPI:
     app.include_router(simulation_router)
     app.include_router(ws_router)
 
+    # Mount static frontend dashboard if built
+    from pathlib import Path
+    from fastapi.staticfiles import StaticFiles
+
+    frontend_dist = Path(__file__).resolve().parents[4] / "frontend" / "dist"
+    if frontend_dist.is_dir():
+        app.mount("/dashboard", StaticFiles(directory=str(frontend_dist), html=True), name="dashboard")
+
     return app
 
 

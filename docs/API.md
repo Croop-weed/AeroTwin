@@ -321,3 +321,39 @@ socket.onerror = (err) => console.error("WebSocket error:", err);
 
 #### `GET /api/v1/uavs/{uav_id}/history?limit=100&start_time=...&end_time=...`
 Returns timestamped historical records with engine measurements, health scores, and analytics for charting trends.
+
+---
+
+### 3.9 Section B Dedicated Visualization Endpoints
+
+#### `GET /api/v1/uavs/{uav_id}/mission-report`
+Computes mission-wise health analysis, statistical aggregates (duration, average/min/max health, anomaly counts, fault counts), maintenance advisory, and chronological event sequence (`MISSION_START`, `ANOMALY`, `FAULT`, `RECOVERY`).
+
+#### `GET /api/v1/uavs/{uav_id}/performance-map`
+Returns a physics-driven performance envelope grid across RPM and Throttle ranges, observed historical operating points, and the current active operating point.
+
+---
+
+## 4. Frontend Dashboard Integration & Running Instructions
+
+The Ground Control Station (GCS) visualization dashboard is located in `frontend/`.
+
+### Development Mode:
+```powershell
+# Terminal 1: Backend
+uv run uvicorn sih.dt.api.main:app --reload --host 0.0.0.0 --port 8000
+
+# Terminal 2: Frontend (Vite dev server on http://localhost:5173)
+cd frontend
+npm run dev
+
+# Terminal 3: Live Simulation Demo
+uv run python examples/dashboard_demo.py
+```
+
+### Production Mode:
+The built frontend is automatically served by FastAPI at:
+```text
+http://localhost:8000/dashboard/
+```
+No separate Node server is required in production.

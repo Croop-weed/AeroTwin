@@ -12,6 +12,7 @@ from sih.dt.api.schemas.simulation import (
 )
 from sih.dt.api.services.twin_service import TwinService, get_twin_service
 from sih.dt.api.state.manager import TwinStateManager, get_state_manager
+from sih.dt.core.state import EngineState
 from sih.dt.simulation.engine import SyntheticEngineSimulator
 from sih.dt.simulation.faults import FaultInjector, FaultType
 from sih.dt.telemetry.schema import Telemetry
@@ -39,6 +40,7 @@ class SimulationService:
                 ambient_pressure=request.ambient_pressure,
             )
             uav.fault_injector.clear()
+            self._reset_twin_session(uav)
             init_telemetry = uav.simulator.reset()
             return SimulationStatusResponse(
                 uav_id=uav_id,
@@ -94,9 +96,7 @@ class SimulationService:
         with uav.lock:
             uav.fault_injector.clear()
             init_telemetry = uav.simulator.reset()
-            uav.twin.reset()
-            uav.states_buffer.clear()
-            uav.residual_history.clear()
+            self._reset_twin_session(uav)
             return SimulationStatusResponse(
                 uav_id=uav_id,
                 is_active=True,
@@ -105,6 +105,17 @@ class SimulationService:
                 simulated_time_seconds=0.0,
                 latest_telemetry=init_telemetry.model_dump(mode="json"),
             )
+
+    @staticmethod
+    def _reset_twin_session(uav: Any) -> None:
+        uav.twin.reset()
+        uav.latest_state = EngineState()
+        uav.latest_analytics.clear()
+        uav.last_telemetry_time = None
+        uav.telemetry_count = 0
+        uav.states_buffer.clear()
+        uav.residual_history.clear()
+        uav.history.clear()
 
     def get_simulation_status(self, uav_id: str) -> SimulationStatusResponse:
         uav = self.state_manager.get_or_create(uav_id)
