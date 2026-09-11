@@ -51,14 +51,19 @@ def validate_against_cwru() -> None:
             for i in range(0, len(arr) - window_size + 1, window_size):
                 window = arr[i:i+window_size]
                 
-                # Compute stats (analogous to our extractor features)
+                # Compute time-domain stats
                 mean_val = window.mean()
                 std_val = window.std()
                 max_abs_val = np.max(np.abs(window))
-                # rough approximation of slope
-                slope_val = (window[-1] - window[0]) / window_size
+                rms_val = np.sqrt(np.mean(window**2))
+                crest_factor = max_abs_val / (rms_val + 1e-8)
                 
-                X_all.append([mean_val, std_val, max_abs_val, slope_val])
+                # Compute frequency-domain features (FFT)
+                fft_vals = np.abs(np.fft.rfft(window))
+                peak_fft = np.max(fft_vals[1:]) if len(fft_vals) > 1 else 0.0 # ignore DC component
+                energy_fft = np.sum(fft_vals**2)
+                
+                X_all.append([mean_val, std_val, max_abs_val, rms_val, crest_factor, peak_fft, energy_fft])
                 y_all.append(fault_type)
                 groups.append(file_idx) # Group by file
                 
@@ -220,7 +225,7 @@ def detect_sensor_drift(residual_window: ResidualWindow) -> bool:
 
 
 def main():
-    print("=== C. Fault Detection & Predictive Analytics ===")
+    print("=== Fault Detection & Predictive Analytics ===")
     
     # 1. Validation Hooks
     validate_against_cwru()

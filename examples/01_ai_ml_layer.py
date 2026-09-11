@@ -188,7 +188,7 @@ class RULEstimator:
         return final_pred
 
 def main():
-    print("=== D. AI/ML Layer: Anomaly & RUL ===\n")
+    print("=== AI/ML Layer: Anomaly & RUL ===\n")
     
     # 1. Initialize our Dual-Encoder LSTM model
     rul_model = AeroTwinRULModel(cmapss_dim=14, sim_dim=6)

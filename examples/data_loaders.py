@@ -9,7 +9,7 @@ import numpy as np
 
 # Data directory paths
 CMAPSS_DIR = os.environ.get("SIH_CMAPSS_DIR", r"C:\Users\mohit\Documents\AeroTwin_datasets\6.+Turbofan+Engine+Degradation+Simulation+Data+Set\6. Turbofan Engine Degradation Simulation Data Set\CMAPSSData.zip")
-CWRU_DIR = os.environ.get("SIH_CWRU_DIR", r"C:\Users\mohit\Documents\AeroTwin_datasets\srigas CWRU_Bearing_NumPy main Data-1797 RPM")
+CWRU_DIR = os.environ.get("SIH_CWRU_DIR", r"C:\Users\mohit\Documents\AeroTwin_datasets\CWRU_Bearing_NumPy_All_RPM")
 AI4I_PATH = os.environ.get("SIH_AI4I_PATH", r"C:\Users\mohit\Documents\AeroTwin_datasets\ai4i+2020+predictive+maintenance+dataset\ai4i2020.csv")
 
 # Cache directory
@@ -88,6 +88,30 @@ def load_cmapss(path: str = CMAPSS_DIR) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _parse_cwru_filename(stem: str) -> dict:
+    """
+    Expected pattern: {rpm}_{fault_code}_{severity}_{channel}
+    e.g. "1797_B_14_DE12" -> rpm=1797, fault_code="B", severity="14", channel="DE12"
+    "1797_Normal" -> rpm=1797, fault_code="Normal", severity=None, channel=None
+    """
+    parts = stem.split("_")
+    fault_code_map = {"B": "BALL", "IR": "INNER_RACE", "OR": "OUTER_RACE", "Normal": "NORMAL"}
+
+    rpm = parts[0] if parts[0].isdigit() else None
+    remaining = parts[1:] if rpm else parts
+
+    if not remaining:
+        return {"fault_type": "UNKNOWN", "severity": None, "channel": None, "rpm": rpm}
+
+    fault_code = remaining[0]
+    # Clean up things like 'OR@12' to just 'OR'
+    base_fault_code = fault_code.split("@")[0]
+    fault_type = fault_code_map.get(base_fault_code, base_fault_code)
+    severity = remaining[1] if len(remaining) > 1 and remaining[1].isdigit() else None
+    channel = remaining[-1] if remaining[-1].startswith(("DE", "FE", "BA")) else None
+
+    return {"fault_type": fault_type, "severity": severity, "channel": channel, "rpm": rpm}
+
 def load_cwru(path: str = CWRU_DIR) -> list[tuple[pd.DataFrame, dict[str, str | int | float]]]:
     """
     Load the CWRU Bearing Dataset (Case Western Reserve University).
@@ -107,14 +131,20 @@ def load_cwru(path: str = CWRU_DIR) -> list[tuple[pd.DataFrame, dict[str, str | 
         base_dir = os.path.dirname(path)
     elif os.path.isdir(path):
         files = os.listdir(path) if os.path.exists(path) else []
-        files_to_load = [os.path.join(path, f) for f in files if f.endswith('.npz') or f.endswith('.mat')]
+        # Filter to DE12 or Normal only to prevent multi-channel data leakage
+        files_to_load = [
+            os.path.join(path, f) for f in files 
+            if (f.endswith('.npz') or f.endswith('.mat')) and ("DE12" in f or "Normal" in f)
+        ]
     else:
         print(f"Warning: CWRU data not found at {path}.")
         return results
         
     for file_path in files_to_load:
+        stem = os.path.basename(file_path).split(".")[0]
+        parsed = _parse_cwru_filename(stem)
         metadata = {
-            "fault_type": os.path.basename(file_path).split(".")[0],
+            **parsed,
             "file_name": os.path.basename(file_path)
         }
 
