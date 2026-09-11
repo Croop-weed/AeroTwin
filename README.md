@@ -268,6 +268,24 @@ To add a new engine model, implement `EngineModel` and pass it to `DigitalTwin`.
 
 When adding a new fault scenario, add it to the simulation `FaultType`, implement only its synthetic telemetry mutation in `FaultInjector`, map it in `DatasetLabel`, and add focused tests. Do not use the injector as a production diagnostic rule engine.
 
+## AI and Machine Learning Integration
+
+The framework now includes fully functional, pre-trained AI layers integrated directly into the `sih.dt.analytics` architecture. 
+
+### Core Components
+- **Anomaly Detection (`sih.dt.analytics.anomaly.IsolationForestDetector`)**: An Isolation Forest algorithm that identifies anomalous telemetry behavior by measuring deviation from normal simulator data. 
+- **Fault Classifiers (`sih.dt.analytics.fault_classifiers`)**: Integrates fault signatures validated against the CWRU Bearing Dataset (using `np.fft.rfft` for true vibration analysis) and AI4I (for tabular faults) to diagnose the root cause of anomalies. We aggressively prevent data leakage via `GroupShuffleSplit`.
+- **RUL Prediction (`sih.dt.analytics.rul_training`)**: A Dual-Encoder LSTM model. It is pre-trained on NASA's C-MAPSS degradation dataset to learn physics-based failure mechanics, and dynamically fine-tunes itself on real-time simulator residuals to accurately estimate Remaining Useful Life (RUL).
+- **Dataset Loaders (`sih.dt.data.loaders`)**: Robust data loaders with caching (`data/cache/`) to manage the external validation datasets (NASA, CWRU, AI4I).
+
+### Running the End-to-End Pipeline
+To view the AI models actively detecting faults and predicting RUL on stochastic live engine telemetry, you can run the master pipeline script:
+
+```bash
+uv run python src/sih/dt/pipeline.py
+```
+This orchestrator will automatically load the pre-trained weights from `data/cache/best_rul_model.pth`, calibrate the anomaly detector on the digital twin's healthy state, and begin injecting random faults to test the classifiers!
+
 ## Current limitations
 
 - All engine relationships and health scores are prototype approximations.

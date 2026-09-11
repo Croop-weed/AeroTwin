@@ -17,7 +17,7 @@ from sih.dt.features.schema import FeatureVector, RESIDUAL_CHANNELS
 from sih.dt.features.extractor import ResidualFeatureExtractor
 from sih.dt.features.physics import PhysicsReferenceModel
 from sih.dt.analytics.rul_model import AeroTwinRULModel
-from data_loaders import load_cmapss, compute_cmapss_rul, preprocess_cmapss_features
+from sih.dt.data.loaders import load_cmapss, compute_cmapss_rul, preprocess_cmapss_features
 
 class CMAPSSWindowDataset(Dataset):
     """Creates sliding windows of length seq_len from C-MAPSS engines."""
@@ -50,6 +50,14 @@ def validate_against_cmapss(rul_model: AeroTwinRULModel) -> None:
     This is where we pre-train/tune the RUL model architecture against a known-good 
     public benchmark before re-fitting on our own simulator's degradation runs.
     """
+    import os
+    import torch
+    model_cache_path = "data/cache/best_rul_model.pth"
+    if os.path.exists(model_cache_path):
+        print(f"Loading pretrained LSTM weights from {model_cache_path}...")
+        rul_model.load_state_dict(torch.load(model_cache_path, weights_only=True))
+        return
+
     print("\n--- NASA C-MAPSS Validation Hook ---")
     df = load_cmapss()
     if df.empty:
@@ -77,13 +85,6 @@ def validate_against_cmapss(rul_model: AeroTwinRULModel) -> None:
         # Create Datasets
         seq_len = 30
         
-        import os
-        model_cache_path = "data/cache/best_rul_model.pth"
-        if os.path.exists(model_cache_path):
-            print(f"Loading pretrained LSTM weights from {model_cache_path}...")
-            rul_model.load_state_dict(torch.load(model_cache_path, weights_only=True))
-            return
-            
         train_ds = CMAPSSWindowDataset(train_df, sensor_cols, seq_len)
         test_ds = CMAPSSWindowDataset(test_df, sensor_cols, seq_len)
         

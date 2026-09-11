@@ -9,7 +9,7 @@ from sih.dt.simulation.faults import FaultType
 from sih.dt.analytics.contracts import ResidualWindow
 from sih.dt.features.extractor import ResidualFeatureExtractor
 from sih.dt.features.physics import PhysicsReferenceModel
-from data_loaders import load_ai4i, load_cwru
+from sih.dt.data.loaders import load_ai4i, load_cwru
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, GroupShuffleSplit

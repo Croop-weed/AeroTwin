@@ -1,5 +1,4 @@
-import os
-from data_loaders import load_cmapss, load_cwru, load_ai4i, compute_cmapss_rul
+from sih.dt.data.loaders import load_cmapss, load_cwru, load_ai4i, compute_cmapss_rul
 
 def main():
     print("Testing CMAPSS Loader:")
