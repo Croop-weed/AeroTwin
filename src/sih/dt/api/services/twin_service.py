@@ -20,6 +20,7 @@ from sih.dt.api.schemas.engine import (
 )
 from sih.dt.api.services.analytics_service import AnalyticsService, get_analytics_service
 from sih.dt.api.services.broadcast_service import BroadcastService, get_broadcast_service
+from sih.dt.api.services.logger_service import get_session_logger
 from sih.dt.api.state.manager import TwinStateManager, UAVRecord, get_state_manager
 from sih.dt.core.state import EngineState
 from sih.dt.features.schema import RESIDUAL_CHANNELS
@@ -89,6 +90,16 @@ class TwinService:
                 residual_history=uav.residual_history,
             )
             uav.latest_analytics = analytics.model_dump()
+
+            # CSV Logging Integration
+            session_logger = get_session_logger()
+            session_logger.log_telemetry(uav_id, telemetry)
+            session_logger.log_health(uav_id, state)
+            session_logger.log_analytics(uav_id, analytics)
+            
+            if analytics.anomaly.is_anomaly:
+                for diag in analytics.diagnoses:
+                    session_logger.log_fault(uav_id, "DETECTED", diag.fault_type, diag.severity, diag.confidence)
 
             # 5. Construct Dashboard Snapshot
             dashboard_snapshot = self._build_dashboard_snapshot(uav, state, analytics)

@@ -18,6 +18,8 @@ from sih.dt.api.routes import (
     ws_router,
 )
 from sih.dt.api.services.analytics_service import get_analytics_service
+from sih.dt.api.services.logger_service import get_session_logger
+import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,9 +32,12 @@ logger = logging.getLogger("sih.dt.api")
 async def lifespan(app: FastAPI):
     """FastAPI lifespan event handler. Loads and warms up AI models once on startup."""
     logger.info("Initializing AeroTwin Digital Twin API lifespan...")
+    session_logger = get_session_logger()
+    session_logger.log_system("STARTUP", "INFO", "Backend starting up")
     analytics_service = get_analytics_service()
     analytics_service.initialize_models(fast=True)
     yield
+    session_logger.log_system("SHUTDOWN", "INFO", "Backend shutting down")
     logger.info("Shutting down AeroTwin Digital Twin API...")
 
 
@@ -57,6 +62,19 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def api_logging_middleware(request: Request, call_next):
+        start_time = time.time()
+        try:
+            response = await call_next(request)
+            latency = (time.time() - start_time) * 1000
+            get_session_logger().log_api(request.method, request.url.path, response.status_code, latency)
+            return response
+        except Exception as e:
+            latency = (time.time() - start_time) * 1000
+            get_session_logger().log_api(request.method, request.url.path, 500, latency)
+            raise e
 
     # Global error handlers
     @app.exception_handler(ValueError)

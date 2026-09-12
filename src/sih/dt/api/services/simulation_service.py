@@ -10,6 +10,7 @@ from sih.dt.api.schemas.simulation import (
     SimulationStepRequest,
     SimulationThrottleRequest,
 )
+from sih.dt.api.services.logger_service import get_session_logger
 from sih.dt.api.services.twin_service import TwinService, get_twin_service
 from sih.dt.api.state.manager import TwinStateManager, get_state_manager
 from sih.dt.core.state import EngineState
@@ -89,6 +90,8 @@ class SimulationService:
 
         with uav.lock:
             uav.fault_injector.set_fault(fault_enum)
+            fault_name = fault_enum.name if fault_enum else "NONE"
+            get_session_logger().log_fault(uav_id, "INJECTED", fault_name, 1.0, 1.0)
             return self._get_status_locked(uav)
 
     def reset_simulation(self, uav_id: str) -> SimulationStatusResponse:
