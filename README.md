@@ -270,21 +270,49 @@ When adding a new fault scenario, add it to the simulation `FaultType`, implemen
 
 ## AI and Machine Learning Integration
 
-The framework now includes fully functional, pre-trained AI layers integrated directly into the `sih.dt.analytics` architecture. 
+The framework now includes fully functional, pre-trained AI layers integrated directly into the sih.dt.analytics architecture, adopting a strict split ML architecture.
 
-### Core Components
-- **Anomaly Detection (`sih.dt.analytics.anomaly.IsolationForestDetector`)**: An Isolation Forest algorithm that identifies anomalous telemetry behavior by measuring deviation from normal simulator data. 
-- **Fault Classifiers (`sih.dt.analytics.fault_classifiers`)**: Integrates fault signatures validated against the CWRU Bearing Dataset (using `np.fft.rfft` for true vibration analysis) and AI4I (for tabular faults) to diagnose the root cause of anomalies. We aggressively prevent data leakage via `GroupShuffleSplit`.
-- **RUL Prediction (`sih.dt.analytics.rul_training`)**: A Dual-Encoder LSTM model. It is pre-trained on NASA's C-MAPSS degradation dataset to learn physics-based failure mechanics, and dynamically fine-tunes itself on real-time simulator residuals to accurately estimate Remaining Useful Life (RUL).
-- **Dataset Loaders (`sih.dt.data.loaders`)**: Robust data loaders with caching (`data/cache/`) to manage the external validation datasets (NASA, CWRU, AI4I).
+### 1. AI/ML Layer (Anomaly Detection & RUL)
+This layer focuses entirely on scoring the residual (expected vs. actual simulator output).
+- **Anomaly Detection (sih.dt.analytics.anomaly.IsolationForestDetector)**: Trained on our simulator's NORMAL data. Scores how far telemetry deviates from healthy bounds using an Isolation Forest.
+- **RUL Estimation (sih.dt.analytics.rul_training)**: Uses a **Dual-Encoder LSTM**. Pretrained on the NASA C-MAPSS degradation dataset to learn physics-based failure mechanics, it dynamically fine-tunes a separate simulator-encoder on the fly to adapt to our proprietary residual channels. Validated using GroupShuffleSplit by Engine ID to ensure zero data leakage.
+
+### 2. Fault Detection & Predictive Analytics
+This layer consumes anomalous windows (via ResidualWindow contracts) and classifies the specific fault signature.
+- **Vibration-Based Faults**: Utilizes 
+p.fft.rfft to extract true frequency-domain features (Peak FFT frequency and total Spectral Energy) alongside time-domain statistics (RMS, Crest Factor). Validated against the **CWRU Bearing Dataset** using file-level GroupShuffleSplit.
+- **Tabular/Multi-Mode Faults**: Identifies injector abnormalities, lubrication issues, and overheating. Validated against the **AI4I 2020 Predictive Maintenance Dataset**.
+- **Sensor Drift**: Validated synthetically via sustained directional drift detection on the simulator.
+
+### Data Caching and Contracts
+All external validation datasets (C-MAPSS, CWRU, AI4I) are aggressively preprocessed and cached to data/cache/*.pkl via sih.dt.data.loaders for instant execution. The two layers communicate securely via ResidualWindow objects to ensure fault classification only occurs when the anomaly layer explicitly flags a degradation.
 
 ### Running the End-to-End Pipeline
-To view the AI models actively detecting faults and predicting RUL on stochastic live engine telemetry, you can run the master pipeline script:
+To view the orchestrator actively detecting faults and predicting RUL on stochastic live engine telemetry in a single cohesive loop, you can run the master pipeline script:
 
-```bash
+`ash
 uv run python src/sih/dt/pipeline.py
 ```
 This orchestrator will automatically load the pre-trained weights from `data/cache/best_rul_model.pth`, calibrate the anomaly detector on the digital twin's healthy state, and begin injecting random faults to test the classifiers!
+
+## Web API, UI, and Networking (Recent Additions)
+
+The framework has been extended with a full backend API, a modern web dashboard, and a 3D visualization client:
+
+### FastAPI Backend (`src/sih/dt/api`)
+- A robust FastAPI application exposing REST endpoints for simulation control, telemetry access, anomaly detection results, and historical data.
+- Real-time WebSocket support (`/ws`) for broadcasting live engine state and AI predictions to connected clients.
+- Includes comprehensive state managers and broadcast services.
+- Example usage: `uv run python examples/api_demo.py` or `uv run python examples/dashboard_demo.py`
+
+### React Frontend Dashboard (`frontend/`)
+- A Vite + React application providing a real-time monitoring dashboard.
+- Includes components for Live Charts, Telemetry Grids, Performance Maps, Fault Alerts, Maintenance Advisories, and Simulation Controls.
+- Communicates seamlessly with the FastAPI backend over HTTP and WebSockets.
+- Run it with: `cd frontend && npm install && npm run dev`
+
+### Unity Digital Twin Client (`unity/`)
+- A 3D client built with Unity for immersive, real-time visualization of the digital twin state and engine mechanics.
 
 ## Current limitations
 
@@ -294,4 +322,4 @@ This orchestrator will automatically load the pre-trained weights from `data/cac
 - Baseline diagnosis and sensor checks are not production fault classifiers.
 - Synthetic faults are useful for pipeline testing, not evidence of real UAV failure behavior.
 - RUL remains explicitly unavailable/not trained until trustworthy run-to-failure data and a validated model exist.
-- No web API, UI, database, networking, or deployment layer is included.
+- No web API, UI, database, networking, or deployment layer is included (Note: A prototype FastAPI backend, React frontend, and Unity client have recently been added, see the new section above).
