@@ -29,6 +29,11 @@ class EngineState(BaseModel):
     oil_temperature_rate: float = 0.0
     fuel_flow: float = 0.0
     fuel_flow_ratio: float = 0.0
+    air_density: float = Field(default=0.0, description="Intake air density in kg/m^3.")
+    air_mass_flow: float = Field(default=0.0, description="Estimated intake air mass flow in kg/s.")
+    fuel_mass_flow: float = Field(default=0.0, description="Estimated fuel mass flow in kg/s.")
+    air_fuel_ratio: float = Field(default=0.0, description="Estimated air-to-fuel mass ratio.")
+    equivalence_ratio: float = Field(default=0.0, description="Estimated mixture equivalence ratio.")
     injection_timing_deg: float = 0.0
     vibration: float = 0.0
     vibration_rate: float = 0.0
