@@ -5,7 +5,6 @@ import { TelemetryGrid } from "./components/TelemetryGrid";
 import { FaultAlerts } from "./components/FaultAlerts";
 import { LiveCharts } from "./components/LiveCharts";
 import { PerformanceMap } from "./components/PerformanceMap";
-import { SimulationControls } from "./components/SimulationControls";
 import { MaintenanceAdvisory } from "./components/MaintenanceAdvisory";
 import { MissionReport } from "./components/MissionReport";
 import { useDigitalTwin } from "./hooks/useDigitalTwin";
@@ -24,15 +23,7 @@ export const App: React.FC = () => {
     status,
     loading,
     error,
-    isDemoRunning,
-    demoStage,
-    startSimulation,
-    stepSimulation,
-    setThrottle,
-    injectFault,
-    resetSimulation,
     refreshMissionReport,
-    runDemoFlow,
   } = useDigitalTwin("UAV-001");
 
   return (
@@ -44,9 +35,6 @@ export const App: React.FC = () => {
         uavList={uavList}
         uavInfo={snapshot?.uav}
         status={status}
-        isDemoRunning={isDemoRunning}
-        demoStage={demoStage}
-        onRunDemo={runDemoFlow}
         overallHealth={snapshot?.health?.overall}
       />
 
@@ -115,30 +103,17 @@ export const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Section 4: Simulation Controls, Maintenance Advisory, Mission Health */}
+          {/* Section 4: Maintenance Advisory, Mission Health */}
           <div style={{
             display: "grid",
             gridTemplateColumns: "repeat(12, 1fr)",
             gap: "1rem",
             marginBottom: "1rem",
           }}>
-            <div style={{ gridColumn: "span 4" }} className="lg:col-span-4 sm:col-span-12">
-              <SimulationControls
-                currentThrottle={snapshot.engine.throttle}
-                activeFault={snapshot.analytics.faults[0]?.fault_type}
-                onSetThrottle={setThrottle}
-                onStartSimulation={startSimulation}
-                onStepSimulation={stepSimulation}
-                onInjectFault={injectFault}
-                onResetSimulation={resetSimulation}
-                onRunDemoFlow={runDemoFlow}
-                isDemoRunning={isDemoRunning}
-              />
-            </div>
-            <div style={{ gridColumn: "span 4" }} className="lg:col-span-4 sm:col-span-12">
+            <div style={{ gridColumn: "span 6" }} className="lg:col-span-6 sm:col-span-12">
               <MaintenanceAdvisory analytics={snapshot.analytics} health={snapshot.health} />
             </div>
-            <div style={{ gridColumn: "span 4" }} className="lg:col-span-4 sm:col-span-12">
+            <div style={{ gridColumn: "span 6" }} className="lg:col-span-6 sm:col-span-12">
               <MissionReport report={missionReport} onRefresh={refreshMissionReport} />
             </div>
           </div>

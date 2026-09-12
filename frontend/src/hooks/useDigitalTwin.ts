@@ -21,9 +21,6 @@ export function useDigitalTwin(defaultUavId: string = "UAV-001") {
   const [status, setStatus] = useState<ConnectionStatus>("CONNECTING");
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [isDemoRunning, setIsDemoRunning] = useState<boolean>(false);
-  const [demoStage, setDemoStage] = useState<string>("");
-
   const wsClientRef = useRef<TwinWebSocketClient | null>(null);
 
   // 1. Fetch or initialize UAVs
@@ -35,7 +32,7 @@ export function useDigitalTwin(defaultUavId: string = "UAV-001") {
         try {
           const created = await api.registerUAV({
             uav_id: "UAV-001",
-            engine_id: "ROTAX-914-TURBO-01",
+            engine_id: "ENG-UAV-001",
             model_type: "piston",
             metadata: { mission: "PATROL-RECON-ALPHA", operator: "AeroTwin Ground Base" },
           });
@@ -186,107 +183,6 @@ export function useDigitalTwin(defaultUavId: string = "UAV-001") {
     }
   }, [uavId]);
 
-  // Simulation controls
-  const startSimulation = useCallback(
-    async (throttle: number = 45.0) => {
-      try {
-        await api.startSimulation(uavId, throttle);
-        await api.stepSimulation(uavId, 0.5);
-      } catch (err: any) {
-        setError(err.message || "Failed to start simulation");
-      }
-    },
-    [uavId]
-  );
-
-  const stepSimulation = useCallback(
-    async (dt: number = 0.5) => {
-      try {
-        await api.stepSimulation(uavId, dt);
-      } catch (err: any) {
-        setError(err.message || "Failed to step simulation");
-      }
-    },
-    [uavId]
-  );
-
-  const setThrottle = useCallback(
-    async (throttle: number) => {
-      try {
-        await api.setThrottle(uavId, throttle);
-        await api.stepSimulation(uavId, 0.5);
-      } catch (err: any) {
-        setError(err.message || "Failed to set throttle");
-      }
-    },
-    [uavId]
-  );
-
-  const injectFault = useCallback(
-    async (faultType: string | null) => {
-      try {
-        await api.injectFault(uavId, faultType);
-        await api.stepSimulation(uavId, 0.5);
-        await refreshMissionReport();
-      } catch (err: any) {
-        setError(err.message || "Failed to inject fault");
-      }
-    },
-    [uavId, refreshMissionReport]
-  );
-
-  const resetSimulation = useCallback(async () => {
-    try {
-      await api.resetSimulation(uavId);
-      await loadInitialData(uavId);
-    } catch (err: any) {
-      setError(err.message || "Failed to reset simulation");
-    }
-  }, [uavId, loadInitialData]);
-
-  // Automated 3-Stage Hackathon Demo Flow
-  const runDemoFlow = useCallback(async () => {
-    if (isDemoRunning) return;
-    setIsDemoRunning(true);
-    try {
-      // Stage 1: Initialize and normal cruise
-      setDemoStage("Stage 1: Normal Cruise (Nominal parameters)");
-      await api.startSimulation(uavId, 45.0);
-      for (let i = 0; i < 8; i++) {
-        await api.stepSimulation(uavId, 0.5);
-        await new Promise((r) => setTimeout(r, 400));
-      }
-
-      // Stage 2: Inject Overheating Fault
-      setDemoStage("Stage 2: Injecting OVERHEATING (Thermal degradation & alerts)");
-      await api.injectFault(uavId, "OVERHEATING");
-      for (let i = 0; i < 10; i++) {
-        await api.stepSimulation(uavId, 0.5);
-        await new Promise((r) => setTimeout(r, 400));
-      }
-
-      // Stage 3: Clear Fault & Recover
-      setDemoStage("Stage 3: Fault Cleared (Observing cooling & recovery)");
-      await api.injectFault(uavId, null);
-      for (let i = 0; i < 8; i++) {
-        await api.stepSimulation(uavId, 0.5);
-        await new Promise((r) => setTimeout(r, 400));
-      }
-
-      setDemoStage("Demo Flow Completed Successfully!");
-      await refreshMissionReport();
-      await refreshPerformanceMap();
-    } catch (err: any) {
-      console.error("Error running demo flow:", err);
-      setDemoStage(`Demo Failed: ${err.message}`);
-    } finally {
-      setTimeout(() => {
-        setIsDemoRunning(false);
-        setDemoStage("");
-      }, 3000);
-    }
-  }, [uavId, isDemoRunning, refreshMissionReport, refreshPerformanceMap]);
-
   return {
     uavId,
     setUavId,
@@ -298,15 +194,7 @@ export function useDigitalTwin(defaultUavId: string = "UAV-001") {
     status,
     loading,
     error,
-    isDemoRunning,
-    demoStage,
-    startSimulation,
-    stepSimulation,
-    setThrottle,
-    injectFault,
-    resetSimulation,
     refreshMissionReport,
     refreshPerformanceMap,
-    runDemoFlow,
   };
 }

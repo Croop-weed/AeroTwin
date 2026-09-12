@@ -1,5 +1,5 @@
 import React from "react";
-import { Activity, Plane, Play, RefreshCw } from "lucide-react";
+import { Plane } from "lucide-react";
 import type { ConnectionStatus } from "../services/websocket";
 import type { UAVItem, UAVInfo } from "../types/api";
 
@@ -9,9 +9,6 @@ interface HeaderProps {
   uavList: UAVItem[];
   uavInfo?: UAVInfo;
   status: ConnectionStatus;
-  isDemoRunning: boolean;
-  demoStage: string;
-  onRunDemo: () => void;
   overallHealth?: number;
 }
 
@@ -21,9 +18,6 @@ export const Header: React.FC<HeaderProps> = ({
   uavList,
   uavInfo,
   status,
-  isDemoRunning,
-  demoStage,
-  onRunDemo,
   overallHealth = 100,
 }) => {
   const [time, setTime] = React.useState<string>(new Date().toISOString().substring(11, 19) + " UTC");
@@ -115,7 +109,7 @@ export const Header: React.FC<HeaderProps> = ({
           {getHealthBadge()}
         </div>
 
-        {/* Right: Live Connection Indicator & Demo Launcher */}
+        {/* Right: Live Connection Indicator */}
         <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
           
           {/* UTC Clock */}
@@ -153,48 +147,8 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
 
-          {/* 3-Stage Demo Button */}
-          <button
-            onClick={onRunDemo}
-            disabled={isDemoRunning}
-            className="btn-aerotwin"
-            style={{ fontSize: "0.8rem", padding: "0.4rem 0.85rem" }}
-            title="Runs automated Stage 1 (Cruise) -> Stage 2 (Overheating Fault) -> Stage 3 (Recovery) demonstration"
-          >
-            {isDemoRunning ? (
-              <>
-                <RefreshCw size={14} className="animate-spin" />
-                <span>DEMO RUNNING...</span>
-              </>
-            ) : (
-              <>
-                <Play size={14} fill="#ffffff" />
-                <span>START DEMO SCENARIO</span>
-              </>
-            )}
-          </button>
         </div>
       </div>
-
-      {/* Demo Stage Banner (if active) */}
-      {isDemoRunning && demoStage && (
-        <div style={{
-          marginTop: "0.65rem",
-          padding: "0.4rem 0.8rem",
-          background: "rgba(14, 165, 233, 0.15)",
-          border: "1px solid rgba(56, 189, 248, 0.4)",
-          borderRadius: "6px",
-          display: "flex",
-          alignItems: "center",
-          gap: "0.5rem",
-          fontSize: "0.8rem",
-          color: "var(--accent-cyan)",
-          fontWeight: 600,
-        }}>
-          <Activity size={16} />
-          <span>{demoStage}</span>
-        </div>
-      )}
     </header>
   );
 };

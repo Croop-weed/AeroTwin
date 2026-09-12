@@ -189,12 +189,3 @@ export interface UAVItem {
   telemetry_count: number;
   metadata: Record<string, any>;
 }
-
-export interface SimulationStatusResponse {
-  uav_id: string;
-  is_active: boolean;
-  throttle: number;
-  active_fault?: string | null;
-  simulated_time_seconds: number;
-  latest_telemetry?: any;
-}

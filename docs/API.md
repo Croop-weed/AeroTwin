@@ -96,7 +96,7 @@ Register a new UAV digital twin.
 ```json
 {
   "uav_id": "UAV-ROTAX-01",
-  "engine_id": "ENG-912-IS",
+  "engine_id": "ENG-UAV-001",
   "model_type": "piston",
   "configuration": {},
   "metadata": {
@@ -168,7 +168,7 @@ This is the primary endpoint for **Section B (Visualization & Output Presentatio
 {
   "uav": {
     "uav_id": "UAV-ROTAX-01",
-    "engine_id": "ENG-912-IS",
+    "engine_id": "ENG-UAV-001",
     "status": "active",
     "model_type": "piston"
   },

@@ -3,11 +3,10 @@ import type {
   HistoryResponse,
   MissionReportResponse,
   PerformanceMapResponse,
-  SimulationStatusResponse,
   UAVItem,
 } from "../types/api";
 
-export const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+export const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
@@ -56,35 +55,4 @@ export const api = {
   getPerformanceMap: (uavId: string) =>
     request<PerformanceMapResponse>(`/api/v1/uavs/${encodeURIComponent(uavId)}/performance-map`),
 
-  startSimulation: (uavId: string, throttle = 45.0) =>
-    request<SimulationStatusResponse>(`/api/v1/uavs/${encodeURIComponent(uavId)}/simulation/start`, {
-      method: "POST",
-      body: JSON.stringify({ throttle, ambient_temperature: 24.0, ambient_pressure: 101.3 }),
-    }),
-
-  stepSimulation: (uavId: string, dt = 0.5) =>
-    request<{ step_dt: number; dashboard_snapshot: DashboardSnapshotResponse }>(
-      `/api/v1/uavs/${encodeURIComponent(uavId)}/simulation/step`,
-      {
-        method: "POST",
-        body: JSON.stringify({ dt, auto_ingest: true }),
-      }
-    ),
-
-  setThrottle: (uavId: string, throttle: number) =>
-    request<SimulationStatusResponse>(`/api/v1/uavs/${encodeURIComponent(uavId)}/simulation/throttle`, {
-      method: "POST",
-      body: JSON.stringify({ throttle }),
-    }),
-
-  injectFault: (uavId: string, faultType: string | null) =>
-    request<SimulationStatusResponse>(`/api/v1/uavs/${encodeURIComponent(uavId)}/simulation/fault`, {
-      method: "POST",
-      body: JSON.stringify({ fault_type: faultType }),
-    }),
-
-  resetSimulation: (uavId: string) =>
-    request<SimulationStatusResponse>(`/api/v1/uavs/${encodeURIComponent(uavId)}/simulation/reset`, {
-      method: "POST",
-    }),
 };
