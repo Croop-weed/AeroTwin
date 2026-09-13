@@ -5,6 +5,7 @@ import math
 from sih.dt.core.state import EngineState
 from sih.dt.models.base import EngineModel
 from sih.dt.telemetry.schema import Telemetry
+from sih.dt.thermodynamics.model import ThermodynamicModel
 
 
 class PistonEngineModel(EngineModel):
@@ -18,6 +19,7 @@ class PistonEngineModel(EngineModel):
         low_oil_pressure_psi: float = 20.0,
         high_vibration_mm_s: float = 3.0,
         nominal_battery_v: float = 13.8,
+        thermodynamic_model: ThermodynamicModel | None = None,
     ) -> None:
         self.base_torque_nm = base_torque_nm
         self.max_rpm = max_rpm
@@ -26,6 +28,7 @@ class PistonEngineModel(EngineModel):
         self.low_oil_pressure_psi = low_oil_pressure_psi
         self.high_vibration_mm_s = high_vibration_mm_s
         self.nominal_battery_v = nominal_battery_v
+        self.thermodynamic_model = thermodynamic_model or ThermodynamicModel()
         self._state = EngineState()
         self._previous_telemetry: Telemetry | None = None
         self._operating_time_seconds = 0.0
@@ -68,6 +71,13 @@ class PistonEngineModel(EngineModel):
         # Prototype physics: fuel efficiency is an approximate inverse of fuel flow at the observed power.
         fuel_flow = max(telemetry.fuel_flow, 1e-6)
         fuel_efficiency = self._clamp((power_w / fuel_flow) * 0.12, 0.0, 100.0)
+
+        thermodynamics = self.thermodynamic_model.calculate(
+            manifold_absolute_pressure_kpa=telemetry.manifold_absolute_pressure,
+            intake_air_temperature_c=telemetry.intake_air_temperature,
+            rpm=telemetry.rpm,
+            fuel_flow_l_h=telemetry.fuel_flow,
+        )
 
         # Thermal health drops progressively when EGT/CHT exceed prototype healthy bands.
         egt_abnormality = max(0.0, telemetry.egt - self.ideal_egt_c) / 250.0
@@ -138,6 +148,11 @@ class PistonEngineModel(EngineModel):
             ),
             fuel_flow=telemetry.fuel_flow,
             fuel_flow_ratio=self._clamp(telemetry.fuel_flow / self._fuel_flow_reference),
+            air_density=thermodynamics.air_density_kg_m3,
+            air_mass_flow=thermodynamics.air_mass_flow_kg_s,
+            fuel_mass_flow=thermodynamics.fuel_mass_flow_kg_s,
+            air_fuel_ratio=thermodynamics.air_fuel_ratio,
+            equivalence_ratio=thermodynamics.equivalence_ratio,
             injection_timing_deg=telemetry.injection_timing_deg,
             vibration=telemetry.vibration,
             vibration_rate=rate(telemetry.vibration, previous.vibration if previous is not None else 0.0),

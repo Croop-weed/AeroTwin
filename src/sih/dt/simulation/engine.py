@@ -35,6 +35,7 @@ class SyntheticEngineSimulator:
         self._vibration = 0.0
         self._battery_voltage = 0.0
         self.set_throttle(throttle)
+        self._initial_throttle = self._throttle
         self.reset()
 
     @staticmethod
@@ -46,7 +47,7 @@ class SyntheticEngineSimulator:
 
     def reset(self) -> Telemetry:
         self._time_seconds = 0.0
-        self._throttle = 25.0
+        self._throttle = self._initial_throttle
         self._rpm = 850.0
         self._manifold_absolute_pressure = 42.0
         self._egt = 610.0

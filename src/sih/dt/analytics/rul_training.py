@@ -52,44 +52,39 @@ def validate_against_cmapss(rul_model: AeroTwinRULModel) -> None:
     """
     import os
     import torch
+    import pickle
+    from torch.utils.data import TensorDataset, DataLoader
+    
     model_cache_path = "data/cache/best_rul_model.pth"
     if os.path.exists(model_cache_path):
-        print(f"Loading pretrained LSTM weights from {model_cache_path}...")
+        print(f"Loading pretrained GRU weights from {model_cache_path}...")
         rul_model.load_state_dict(torch.load(model_cache_path, weights_only=True))
         return
 
     print("\n--- NASA C-MAPSS Validation Hook ---")
-    df = load_cmapss()
-    if df.empty:
-        print("C-MAPSS data not found or loader unimplemented. Skipping validation step.")
-    else:
-        df = compute_cmapss_rul(df)
-        df = preprocess_cmapss_features(df)
+    full_cache_path = "data/cache/cmapss_full_processed.pkl"
+    if not os.path.exists(full_cache_path):
+        print("Full C-MAPSS processed data not found. Skipping validation step.")
+        return
         
-        sensor_cols = [c for c in df.columns if c.startswith("sensor_")]
+    print(f"Loading full preprocessed FD001-FD004 C-MAPSS data from {full_cache_path}...")
+    with open(full_cache_path, "rb") as f:
+        data = pickle.load(f)
         
-        # Leakage-safe split by unit_number
-        gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
-        train_idx, test_idx = next(gss.split(df, groups=df['unit_number']))
-        
-        train_df = df.iloc[train_idx].copy()
-        test_df = df.iloc[test_idx].copy()
-        
-        # Scale per sensor on training set, apply to both
-        scaler = StandardScaler()
-        train_df[sensor_cols] = scaler.fit_transform(train_df[sensor_cols])
-        test_df[sensor_cols] = scaler.transform(test_df[sensor_cols])
-        
-        print(f"Pretraining LSTM on C-MAPSS... (Train units: {train_df['unit_number'].nunique()}, Test units: {test_df['unit_number'].nunique()})")
-        
-        # Create Datasets
-        seq_len = 30
-        
-        train_ds = CMAPSSWindowDataset(train_df, sensor_cols, seq_len)
-        test_ds = CMAPSSWindowDataset(test_df, sensor_cols, seq_len)
-        
-        train_loader = DataLoader(train_ds, batch_size=256, shuffle=True)
-        test_loader = DataLoader(test_ds, batch_size=256, shuffle=False)
+    X_train = torch.tensor(data["X_train"], dtype=torch.float32)
+    y_train = torch.tensor(data["y_train"], dtype=torch.float32).view(-1, 1)
+    X_val = torch.tensor(data["X_val"], dtype=torch.float32)
+    y_val = torch.tensor(data["y_val"], dtype=torch.float32).view(-1, 1)
+    
+    train_ds = TensorDataset(X_train, y_train)
+    val_ds = TensorDataset(X_val, y_val)
+    
+    train_loader = DataLoader(train_ds, batch_size=256, shuffle=True)
+    test_loader = DataLoader(val_ds, batch_size=256, shuffle=False)
+    
+    print(f"Pretraining GRU on Full C-MAPSS... (Train samples: {len(X_train)}, Val samples: {len(X_val)})")
+    
+    if True:
         
         # Pretraining Loop (Door A)
         optimizer = torch.optim.Adam(rul_model.parameters(), lr=1e-3)
@@ -146,19 +141,19 @@ def validate_against_cmapss(rul_model: AeroTwinRULModel) -> None:
             torch.save(best_model_state, model_cache_path)
             print(f"Saved best model weights to {model_cache_path}")
             
-        print("C-MAPSS LSTM Pretraining Complete.")
+        print("C-MAPSS GRU Pretraining Complete.")
 
 class RULEstimator:
     """
-    RUL estimator leveraging the pretrained Dual-Encoder LSTM.
+    RUL estimator leveraging the pretrained Dual-Encoder GRU.
     Fine-tunes the simulator encoder dynamically.
     """
     def __init__(self, model: AeroTwinRULModel):
         self.model = model
-        # Freeze the LSTM and output predictor
-        self.model.freeze_shared_core()
-        # Create optimizer strictly for the Simulator Encoder (Door B)
-        self.optimizer = torch.optim.Adam(self.model.sim_encoder.parameters(), lr=1e-3)
+        # Unfreeze the entire model for fine-tuning
+        self.model.unfreeze_shared_core()
+        # Create optimizer for the whole model
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
         self.criterion = nn.MSELoss()
         
     def fine_tune_and_predict(self, history: list[list[float]], true_rul: float) -> float:
@@ -188,64 +183,92 @@ class RULEstimator:
             
         return final_pred
 
+def pretrain_simulator_encoder(rul_model: AeroTwinRULModel) -> None:
+    import os
+    import torch
+    import torch.utils.data as data
+    from sih.dt.data.generator import FaultDatasetGenerator
+    from sih.dt.simulation.faults import FaultType
+    from sih.dt.features.physics import PhysicsReferenceModel
+    from sih.dt.features.extractor import ResidualFeatureExtractor
+    from sih.dt.analytics.anomaly import IsolationForestDetector
+    from collections import defaultdict
+
+    finetuned_path = "data/cache/best_rul_model_finetuned.pth"
+    if os.path.exists(finetuned_path):
+        print(f"Loading fully finetuned GRU weights from {finetuned_path}...")
+        rul_model.load_state_dict(torch.load(finetuned_path, weights_only=True))
+        return
+
+    print("Pre-training simulator encoder offline...")
+    generator = FaultDatasetGenerator(
+        extractor=ResidualFeatureExtractor(PhysicsReferenceModel())
+    )
+    
+    norm_ds = generator.generate_normal(num_runs=5, steps_per_run=50)
+    detector = IsolationForestDetector(contamination=0.05)
+    detector.fit([s.features for s in norm_ds.samples])
+
+    warmup_ds = generator.generate_fault(FaultType.OVERHEATING, num_runs=10, steps_per_run=150)
+    
+    calibration_data = []
+    flights = defaultdict(list)
+    for sample in warmup_ds.samples:
+        flights[sample.run_id].append(sample)
+        
+    for run_id, samples in flights.items():
+        warm_history = []
+        warm_rul = 150
+        anomaly_streak = 0
+        
+        for sample in samples:
+            vec = sample.features
+            residuals = [vec.features.get(f"{ch}_residual_mean", 0.0) for ch in ["egt", "ff", "n1", "n2", "vibration", "p30"]]
+            warm_history.append(residuals)
+            warm_rul -= 1
+            
+            if detector.predict(vec):
+                anomaly_streak += 1
+            else:
+                anomaly_streak = 0
+                
+            if len(warm_history) >= 30 and anomaly_streak >= 3:
+                calibration_data.append((list(warm_history[-30:]), float(warm_rul)))
+            
+    X_train = torch.tensor([item[0] for item in calibration_data], dtype=torch.float32)
+    y_train = torch.tensor([[item[1]] for item in calibration_data], dtype=torch.float32)
+    dataset = data.TensorDataset(X_train, y_train)
+    loader = data.DataLoader(dataset, batch_size=16, shuffle=True)
+    
+    rul_model.unfreeze_shared_core()
+    optimizer = torch.optim.Adam(rul_model.parameters(), lr=1e-3)
+    criterion = torch.nn.MSELoss()
+    
+    epochs = 150
+    rul_model.train()
+    for epoch in range(epochs):
+        for batch_x, batch_y in loader:
+            optimizer.zero_grad()
+            pred = rul_model.forward_sim(batch_x)
+            loss = criterion(pred, batch_y)
+            loss.backward()
+            optimizer.step()
+            
+    torch.save(rul_model.state_dict(), finetuned_path)
+    print(f"Saved fully finetuned model weights to {finetuned_path}")
+
 def main():
     print("=== AI/ML Layer: Anomaly & RUL ===\n")
     
-    # 1. Initialize our Dual-Encoder LSTM model
+    # 1. Initialize our Dual-Encoder GRU model
     rul_model = AeroTwinRULModel(cmapss_dim=14, sim_dim=6)
     
     # 2. Pretrain on NASA C-MAPSS (Door A)
     validate_against_cmapss(rul_model)
     
-    # 3. Initialize Anomaly Detector & Fine-tuning RUL Estimator
-    generator = FaultDatasetGenerator()
-    detector = IsolationForestDetector()
-    rul_estimator = RULEstimator(rul_model)
-    
-    print("\n--- Training Anomaly Detector ---")
-    reference_model = PhysicsReferenceModel()
-    extractor = ResidualFeatureExtractor(reference_model)
-    generator = FaultDatasetGenerator(seed=42, extractor=extractor)
-    # Train STRICTLY on NORMAL data
-    dataset = generator.generate_normal(num_runs=10, steps_per_run=50)
-    
-    detector = IsolationForestDetector(contamination=0.05, random_state=42)
-    normal_vectors = [sample.features for sample in dataset.samples]
-    detector.fit(normal_vectors)
-    print(f"IsolationForest trained on {len(normal_vectors)} normal simulator windows.")
-    
-    # Simulate inference and RUL fine-tuning
-    print("\n--- RUL Estimation Pipeline (Fine-Tuning on Simulator) ---")
-    
-    # We will simulate a history buffer of simulator residuals
-    history = []
-    
-    # For a real run, true_rul decreases. We'll fake a true RUL that counts down from 150
-    true_rul_counter = 150
-    
-    # Simulation loop using previously defined reference_model/extractor
-    test_ds = generator.generate(fault_types=[], normal_runs=1, fault_runs=0)
-    
-    for sample in test_ds.samples:
-        # Extract the 6 residuals directly from our predefined schema list
-        residuals = []
-        vec = sample.features
-        for channel in RESIDUAL_CHANNELS:
-            # We want the actual residual values, not the stats. Wait, the simulator state
-            # doesn't directly store the raw residual sequence unless we compute it.
-            # But we can use the 'mean' stat as a proxy for the residual value at this step.
-            stat_key = f"{channel}_residual_mean"
-            residuals.append(vec.features.get(stat_key, 0.0))
-            
-        history.append(residuals)
-        true_rul_counter = max(0, true_rul_counter - 1)
-        
-        if len(history) >= 30:
-            rul_pred = rul_estimator.fine_tune_and_predict(history, true_rul_counter)
-            if true_rul_counter % 20 == 0:
-                print(f"Cycle {150-true_rul_counter}: True RUL={true_rul_counter}, Predicted RUL={rul_pred:.1f}")
-                
-    print("\nNote: The LSTM has successfully pretrained on C-MAPSS physics and fine-tuned on simulator residuals.")
+    # 3. Finetune on Simulator Residuals
+    pretrain_simulator_encoder(rul_model)
+    print("\nNote: The GRU has successfully pretrained on C-MAPSS physics and fine-tuned on simulator residuals.")
 
 if __name__ == "__main__":
     main()

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import warnings
 import numpy as np
+import os
+import joblib
 from sklearn.ensemble import RandomForestClassifier
 
 from sih.dt.data.generator import FaultDatasetGenerator
@@ -104,6 +106,11 @@ def validate_against_cwru() -> None:
                 print(f"CWRU Validation: Precision (macro) = {prec:.3f}, Recall (macro) = {rec:.3f}")
             else:
                 print("CWRU Validation: Not enough classes in test set to evaluate.")
+                
+            # Save the trained model
+            os.makedirs("models", exist_ok=True)
+            joblib.dump(clf, "models/cwru_rf_model.pkl")
+            print("Saved CWRU Random Forest model to models/cwru_rf_model.pkl")
 
 
 def validate_against_ai4i() -> None:

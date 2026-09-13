@@ -21,8 +21,8 @@ from sih.dt.analytics.rul_model import AeroTwinRULModel
 class RULEstimator:
     def __init__(self, model: AeroTwinRULModel):
         self.model = model
-        self.model.freeze_shared_core()
-        self.optimizer = torch.optim.Adam(self.model.sim_encoder.parameters(), lr=1e-3)
+        self.model.unfreeze_shared_core()
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-2)
         self.criterion = nn.MSELoss()
         
     def fine_tune_and_predict(self, history: list[list[float]], true_rul: float) -> float:
@@ -33,7 +33,7 @@ class RULEstimator:
         y_true = torch.tensor([[true_rul]], dtype=torch.float32)
         
         self.model.train()
-        for _ in range(5):  # Option A: Aggressive live fine-tuning
+        for _ in range(10):  # Increased live fine-tuning steps
             self.optimizer.zero_grad()
             pred = self.model.forward_sim(x_tensor)
             loss = self.criterion(pred, y_true)
@@ -88,63 +88,80 @@ def detect_sensor_drift(residual_window: ResidualWindow) -> bool:
 # ---------------------------------------------------------
 # MASTER PIPELINE
 # ---------------------------------------------------------
-def main():
-    print("==================================================")
-    print("   AeroTwin: End-to-End Digital Twin Pipeline     ")
-    print("==================================================\n")
-
-    # 1. SETUP: Load LSTM
-    print("[1/3] Loading Pretrained Dual-Encoder LSTM...")
+# REUSABLE PIPELINE MODEL FACTORIES & CALIBRATORS
+# ---------------------------------------------------------
+def load_rul_estimator(cache_path: str = "data/cache/best_rul_model_finetuned.pth") -> RULEstimator | None:
+    """Loads the pretrained Dual-Encoder GRU model and returns a RULEstimator."""
+    if not os.path.exists(cache_path):
+        return None
     rul_model = AeroTwinRULModel(cmapss_dim=14, sim_dim=6)
-    model_cache_path = "data/cache/best_rul_model.pth"
-    if os.path.exists(model_cache_path):
-        rul_model.load_state_dict(torch.load(model_cache_path, weights_only=True))
-        print("      -> Successfully loaded weights from NASA benchmark.")
-    else:
-        print("      -> WARNING: Cache not found. Run 01_ai_ml_layer.py to train it first!")
-        return
-        
-    rul_estimator = RULEstimator(rul_model)
-    
-    # 2. SETUP: Train Anomaly Detector
-    print("[2/3] Training Anomaly Detector...")
-    reference_model = PhysicsReferenceModel()
-    extractor = ResidualFeatureExtractor(reference_model)
-    generator = FaultDatasetGenerator(seed=None, extractor=extractor)
-    
-    # Generate a robust dataset of healthy flights (full 150-cycle lifespans) to avoid startup false positives
-    ds_norm = generator.generate_normal(num_runs=20, steps_per_run=150)
+    try:
+        rul_model.load_state_dict(torch.load(cache_path, weights_only=True))
+    except RuntimeError as e:
+        print(f"-> [WARNING] Failed to load RUL weights (architecture mismatch). Please retrain the RUL model. Error: {e}")
+        return None
+    rul_model.eval()
+    return RULEstimator(rul_model)
+
+
+def calibrate_anomaly_detector(
+    generator: FaultDatasetGenerator | None = None,
+    num_runs: int = 20,
+    steps_per_run: int = 150,
+) -> tuple[IsolationForestDetector, FaultDatasetGenerator, any]:
+    """Calibrates an IsolationForestDetector on normal flight windows."""
+    if generator is None:
+        reference_model = PhysicsReferenceModel()
+        extractor = ResidualFeatureExtractor(reference_model)
+        generator = FaultDatasetGenerator(seed=None, extractor=extractor)
+
+    ds_norm = generator.generate_normal(num_runs=num_runs, steps_per_run=steps_per_run)
     detector = IsolationForestDetector(contamination=0.05, random_state=None)
     normal_vectors = [sample.features for sample in ds_norm.samples]
     detector.fit(normal_vectors)
-    print(f"      -> Isolation Forest calibrated on {len(normal_vectors)} healthy windows.")
-    
-    # 3. SETUP: Train Classifiers
-    print("[3/3] Calibrating Fault Diagnostics...")
-    ds_vib = generator.generate_fault(FaultType.ABNORMAL_VIBRATION, num_runs=5, steps_per_run=20)
-    ds_misfire = generator.generate_fault(FaultType.MISFIRE, num_runs=5, steps_per_run=20)
-    ds_comb = generator.generate_fault(FaultType.COMBUSTION_INSTABILITY, num_runs=5, steps_per_run=20)
-    
+    return detector, generator, ds_norm
+
+
+def calibrate_fault_classifiers(
+    generator: FaultDatasetGenerator,
+    ds_norm: any,
+    num_runs: int = 5,
+    steps_per_run: int = 20,
+) -> tuple[VibrationFaultClassifier, TabularFaultClassifier]:
+    """Calibrates vibration and tabular fault classifiers using synthetic runs."""
+    ds_vib = generator.generate_fault(FaultType.ABNORMAL_VIBRATION, num_runs=num_runs, steps_per_run=steps_per_run)
+    ds_misfire = generator.generate_fault(FaultType.MISFIRE, num_runs=num_runs, steps_per_run=steps_per_run)
+    ds_comb = generator.generate_fault(FaultType.COMBUSTION_INSTABILITY, num_runs=num_runs, steps_per_run=steps_per_run)
+
     X_vib_list, y_vib_list = [], []
-    for ds, label in [(ds_norm, "NORMAL"), (ds_vib, FaultType.ABNORMAL_VIBRATION.value), (ds_misfire, FaultType.MISFIRE.value), (ds_comb, FaultType.COMBUSTION_INSTABILITY.value)]:
+    for ds, label in [
+        (ds_norm, "NORMAL"),
+        (ds_vib, FaultType.ABNORMAL_VIBRATION.value),
+        (ds_misfire, FaultType.MISFIRE.value),
+        (ds_comb, FaultType.COMBUSTION_INSTABILITY.value),
+    ]:
         for sample in ds.samples:
             vec = sample.features
             X_vib_list.append([
                 vec.features.get("vibration_residual_mean", 0.0),
                 vec.features.get("vibration_residual_std", 0.0),
                 vec.features.get("vibration_residual_max_abs", 0.0),
-                vec.features.get("vibration_residual_slope", 0.0)
+                vec.features.get("vibration_residual_slope", 0.0),
             ])
             y_vib_list.append(label)
-            
+
     vib_clf = VibrationFaultClassifier()
     vib_clf.fit_dummy(np.array(X_vib_list), np.array(y_vib_list))
-    
-    ds_over = generator.generate_fault(FaultType.OVERHEATING, num_runs=5, steps_per_run=20)
-    ds_lube = generator.generate_fault(FaultType.LUBRICATION_FAILURE, num_runs=5, steps_per_run=20)
-    
+
+    ds_over = generator.generate_fault(FaultType.OVERHEATING, num_runs=num_runs, steps_per_run=steps_per_run)
+    ds_lube = generator.generate_fault(FaultType.LUBRICATION_FAILURE, num_runs=num_runs, steps_per_run=steps_per_run)
+
     X_tab_list, y_tab_list = [], []
-    for ds, label in [(ds_norm, "NORMAL"), (ds_over, FaultType.OVERHEATING.value), (ds_lube, FaultType.LUBRICATION_FAILURE.value)]:
+    for ds, label in [
+        (ds_norm, "NORMAL"),
+        (ds_over, FaultType.OVERHEATING.value),
+        (ds_lube, FaultType.LUBRICATION_FAILURE.value),
+    ]:
         for sample in ds.samples:
             vec = sample.features
             feats = []
@@ -153,13 +170,91 @@ def main():
                     vec.features.get(f"{channel}_residual_mean", 0.0),
                     vec.features.get(f"{channel}_residual_std", 0.0),
                     vec.features.get(f"{channel}_residual_max_abs", 0.0),
-                    vec.features.get(f"{channel}_residual_slope", 0.0)
+                    vec.features.get(f"{channel}_residual_slope", 0.0),
                 ])
             X_tab_list.append(feats)
             y_tab_list.append(label)
 
     tab_clf = TabularFaultClassifier()
     tab_clf.fit_dummy(np.array(X_tab_list), np.array(y_tab_list))
+
+    return vib_clf, tab_clf
+
+
+import os
+
+def setup_pipeline_models(cache_path: str = "data/cache/best_rul_model_finetuned.pth", fast: bool = False):
+    """Convenience setup that initializes and calibrates all pipeline models."""
+    rul_estimator = load_rul_estimator(cache_path)
+    norm_runs = 3 if fast else 20
+    norm_steps = 30 if fast else 150
+    fault_runs = 2 if fast else 5
+    fault_steps = 15 if fast else 20
+
+    anomaly_cache_path = "data/cache/anomaly_detector.pkl"
+    try:
+        detector = IsolationForestDetector.load(anomaly_cache_path)
+        # Evaluate on a small test batch to show performance
+        generator = FaultDatasetGenerator(extractor=ResidualFeatureExtractor(PhysicsReferenceModel()))
+        ds_norm = generator.generate_normal(num_runs=3, steps_per_run=20)
+        ds_anom = generator.generate_fault(FaultType.OVERHEATING, num_runs=3, steps_per_run=20)
+        
+        # Performance metric: false positive rate and true positive rate
+        fp = sum(detector.predict(s.features) for s in ds_norm.samples)
+        tp = sum(detector.predict(s.features) for s in ds_anom.samples)
+        
+        print(f"      -> Loaded cached Anomaly Detector from {anomaly_cache_path}")
+        print(f"      -> [Metric] False Positive Rate on healthy: {fp}/{len(ds_norm.samples)} ({(fp/len(ds_norm.samples))*100:.1f}%)")
+        print(f"      -> [Metric] True Positive Rate on faults: {tp}/{len(ds_anom.samples)} ({(tp/len(ds_anom.samples))*100:.1f}%)")
+        
+    except FileNotFoundError:
+        detector, generator, ds_norm = calibrate_anomaly_detector(num_runs=norm_runs, steps_per_run=norm_steps)
+        detector.save(anomaly_cache_path)
+        print(f"      -> Saved trained Anomaly Detector to {anomaly_cache_path}")
+
+    vib_clf, tab_clf = calibrate_fault_classifiers(
+        generator, ds_norm, num_runs=fault_runs, steps_per_run=fault_steps
+    )
+    return {
+        "rul_estimator": rul_estimator,
+        "detector": detector,
+        "generator": generator,
+        "vib_clf": vib_clf,
+        "tab_clf": tab_clf,
+    }
+
+
+# ---------------------------------------------------------
+# MASTER PIPELINE
+# ---------------------------------------------------------
+def main():
+    print("==================================================")
+    print("   AeroTwin: End-to-End Digital Twin Pipeline     ")
+    print("==================================================\n")
+
+    # 1. SETUP: Load GRU
+    print("[1/3] Loading Pretrained Dual-Encoder GRU...")
+    model_cache_path = "data/cache/best_rul_model_finetuned.pth"
+    rul_estimator = load_rul_estimator(model_cache_path)
+    if rul_estimator is not None:
+        print("      -> Successfully loaded weights from offline simulator fine-tuning.")
+    else:
+        print("      -> WARNING: Cache not found. Run 01_ai_ml_layer.py to train it first!")
+        return
+
+    # 2. SETUP: Train Anomaly Detector
+    print("[2/3] Training Anomaly Detector...")
+    reference_model = PhysicsReferenceModel()
+    extractor = ResidualFeatureExtractor(reference_model)
+    generator = FaultDatasetGenerator(seed=None, extractor=extractor)
+
+    detector, generator, ds_norm = calibrate_anomaly_detector(generator=generator, num_runs=20, steps_per_run=150)
+    normal_vectors = [sample.features for sample in ds_norm.samples]
+    print(f"      -> Isolation Forest calibrated on {len(normal_vectors)} healthy windows.")
+
+    # 3. SETUP: Train Classifiers
+    print("[3/3] Calibrating Fault Diagnostics...")
+    vib_clf, tab_clf = calibrate_fault_classifiers(generator, ds_norm, num_runs=5, steps_per_run=20)
     print("      -> Classifiers ready.\n")
     
     # -----------------------------------------------------
